@@ -2,30 +2,30 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_bcrypt import Bcrypt
 import jwt
-import mysql.connector
+import sqlite3
 import json
 import os
 from datetime import datetime, timedelta
 from functools import wraps
 from dotenv import load_dotenv
 
-load_dotenv()
+# Ensure we load the .env located in the backend directory
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:3000"], supports_credentials=True)
+CORS(app, origins=["http://localhost:3000", "http://localhost:3001"], supports_credentials=True)
 bcrypt = Bcrypt(app)
 
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-super-secret-key-change-in-production')
 
 # ─── Database Connection ────────────────────────────────────────────────────
 def get_db():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST', 'localhost'),
-        user=os.getenv('DB_USER', 'root'),
-        password=os.getenv('DB_PASSWORD', ''),
-        database=os.getenv('DB_NAME', 'internship_db'),
-        autocommit=True
-    )
+    db_path = os.path.join(os.path.dirname(__file__), 'database.sqlite3')
+    conn = sqlite3.connect(db_path, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    # enable foreign keys
+    conn.execute('PRAGMA foreign_keys = ON;')
+    return conn
 
 # ─── JWT Auth Decorator ──────────────────────────────────────────────────────
 def token_required(f):
@@ -64,16 +64,19 @@ def register():
 
     try:
         db = get_db()
-        cursor = db.cursor(dictionary=True)
-        cursor.execute('SELECT id FROM users WHERE email = %s', (email,))
+        cursor = db.cursor()
+        cursor.execute('SELECT id FROM users WHERE email = ?', (email,))
         if cursor.fetchone():
+            cursor.close()
+            db.close()
             return jsonify({'error': 'Email already registered'}), 409
 
         cursor.execute(
-            'INSERT INTO users (name, email, password, skills) VALUES (%s, %s, %s, %s)',
+            'INSERT INTO users (name, email, password, skills) VALUES (?, ?, ?, ?)',
             (name, email, hashed_pw, skills_json)
         )
         user_id = cursor.lastrowid
+        db.commit()
         cursor.close()
         db.close()
 
@@ -102,11 +105,13 @@ def login():
 
     try:
         db = get_db()
-        cursor = db.cursor(dictionary=True)
-        cursor.execute('SELECT * FROM users WHERE email = %s', (email,))
-        user = cursor.fetchone()
+        cursor = db.cursor()
+        cursor.execute('SELECT * FROM users WHERE email = ?', (email,))
+        row = cursor.fetchone()
         cursor.close()
         db.close()
+
+        user = dict(row) if row else None
 
         if not user or not bcrypt.check_password_hash(user['password'], password):
             return jsonify({'error': 'Invalid email or password'}), 401
@@ -139,15 +144,16 @@ def login():
 def get_profile(current_user_id):
     try:
         db = get_db()
-        cursor = db.cursor(dictionary=True)
-        cursor.execute('SELECT id, name, email, skills FROM users WHERE id = %s', (current_user_id,))
-        user = cursor.fetchone()
+        cursor = db.cursor()
+        cursor.execute('SELECT id, name, email, skills FROM users WHERE id = ?', (current_user_id,))
+        row = cursor.fetchone()
         cursor.close()
         db.close()
 
-        if not user:
+        if not row:
             return jsonify({'error': 'User not found'}), 404
 
+        user = dict(row)
         user['skills'] = json.loads(user['skills']) if user['skills'] else []
         return jsonify({'user': user}), 200
     except Exception as e:
@@ -166,11 +172,12 @@ def update_profile(current_user_id):
 
     try:
         db = get_db()
-        cursor = db.cursor(dictionary=True)
+        cursor = db.cursor()
         cursor.execute(
-            'UPDATE users SET name = %s, skills = %s WHERE id = %s',
+            'UPDATE users SET name = ?, skills = ? WHERE id = ?',
             (name, json.dumps(skills), current_user_id)
         )
+        db.commit()
         cursor.close()
         db.close()
 
@@ -189,12 +196,13 @@ def update_profile(current_user_id):
 def get_internships(current_user_id):
     try:
         db = get_db()
-        cursor = db.cursor(dictionary=True)
+        cursor = db.cursor()
         cursor.execute('SELECT * FROM internships')
-        internships = cursor.fetchall()
+        rows = cursor.fetchall()
         cursor.close()
         db.close()
 
+        internships = [dict(r) for r in rows]
         for i in internships:
             i['requirements'] = json.loads(i['requirements']) if i['requirements'] else []
 
@@ -216,12 +224,13 @@ def create_internship(current_user_id):
 
     try:
         db = get_db()
-        cursor = db.cursor(dictionary=True)
+        cursor = db.cursor()
         cursor.execute(
-            'INSERT INTO internships (title, company, requirements) VALUES (%s, %s, %s)',
+            'INSERT INTO internships (title, company, requirements) VALUES (?, ?, ?)',
             (title, company, json.dumps(requirements))
         )
         internship_id = cursor.lastrowid
+        db.commit()
         cursor.close()
         db.close()
 
@@ -246,42 +255,97 @@ def calculate_match_score(student_skills, internship_requirements):
     return score, list(matched), list(req_set - student_set)
 
 
+def init_db():
+    db = get_db()
+    cursor = db.cursor()
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            skills TEXT
+        );
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS internships (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            company TEXT NOT NULL,
+            requirements TEXT
+        );
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS matches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            internship_id INTEGER NOT NULL,
+            match_score REAL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(internship_id) REFERENCES internships(id) ON DELETE CASCADE
+        );
+    ''')
+
+    # seed internships if empty
+    cursor.execute('SELECT COUNT(*) as cnt FROM internships')
+    row = cursor.fetchone()
+    cnt = row['cnt'] if row else 0
+    if cnt == 0:
+        seed = [
+            ('AI Intern', 'OpenAI', json.dumps(['Python', 'Machine Learning', 'TensorFlow'])),
+            ('Web Dev Intern', 'Acme Corp', json.dumps(['JavaScript', 'React', 'CSS'])),
+            ('Data Analyst Intern', 'DataWorks', json.dumps(['SQL', 'Excel', 'Python']))
+        ]
+        cursor.executemany('INSERT INTO internships (title, company, requirements) VALUES (?, ?, ?)', seed)
+
+    db.commit()
+    cursor.close()
+    db.close()
+
+
 @app.route('/recommendations', methods=['GET'])
 @token_required
 def get_recommendations(current_user_id):
     try:
         db = get_db()
-        cursor = db.cursor(dictionary=True)
+        cursor = db.cursor()
 
-        cursor.execute('SELECT skills FROM users WHERE id = %s', (current_user_id,))
-        user = cursor.fetchone()
-        if not user:
+        cursor.execute('SELECT skills FROM users WHERE id = ?', (current_user_id,))
+        row = cursor.fetchone()
+        if not row:
+            cursor.close()
+            db.close()
             return jsonify({'error': 'User not found'}), 404
 
-        student_skills = json.loads(user['skills']) if user['skills'] else []
+        student_skills = json.loads(row['skills']) if row['skills'] else []
 
         cursor.execute('SELECT * FROM internships')
-        internships = cursor.fetchall()
+        rows = cursor.fetchall()
 
         recommendations = []
-        for internship in internships:
+        for internship_row in rows:
+            internship = dict(internship_row)
             reqs = json.loads(internship['requirements']) if internship['requirements'] else []
             score, matched, missing = calculate_match_score(student_skills, reqs)
 
             # Save/update match in DB
             cursor.execute(
-                'SELECT id FROM matches WHERE user_id = %s AND internship_id = %s',
+                'SELECT id FROM matches WHERE user_id = ? AND internship_id = ?',
                 (current_user_id, internship['id'])
             )
-            existing = cursor.fetchone()
-            if existing:
+            existing_row = cursor.fetchone()
+            if existing_row:
+                existing = dict(existing_row)
                 cursor.execute(
-                    'UPDATE matches SET match_score = %s WHERE id = %s',
+                    'UPDATE matches SET match_score = ? WHERE id = ?',
                     (score, existing['id'])
                 )
             else:
                 cursor.execute(
-                    'INSERT INTO matches (user_id, internship_id, match_score) VALUES (%s, %s, %s)',
+                    'INSERT INTO matches (user_id, internship_id, match_score) VALUES (?, ?, ?)',
                     (current_user_id, internship['id'], score)
                 )
 
@@ -295,6 +359,7 @@ def get_recommendations(current_user_id):
                 'missing_skills': missing
             })
 
+        db.commit()
         cursor.close()
         db.close()
 
@@ -313,18 +378,19 @@ def get_recommendations(current_user_id):
 def get_matches(current_user_id):
     try:
         db = get_db()
-        cursor = db.cursor(dictionary=True)
+        cursor = db.cursor()
         cursor.execute('''
             SELECT m.id, m.match_score, i.title, i.company, i.requirements
             FROM matches m
             JOIN internships i ON m.internship_id = i.id
-            WHERE m.user_id = %s
+            WHERE m.user_id = ?
             ORDER BY m.match_score DESC
         ''', (current_user_id,))
-        matches = cursor.fetchall()
+        rows = cursor.fetchall()
         cursor.close()
         db.close()
 
+        matches = [dict(r) for r in rows]
         for m in matches:
             m['requirements'] = json.loads(m['requirements']) if m['requirements'] else []
 
@@ -339,4 +405,5 @@ def health():
 
 
 if __name__ == '__main__':
+    init_db()
     app.run(debug=True, port=5000)
