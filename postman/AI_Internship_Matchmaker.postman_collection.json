@@ -1,0 +1,112 @@
+{
+  "info": {
+    "name": "AI Internship Matchmaker API",
+    "description": "Complete API test collection for the AI Internship Matchmaker project",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:5000", "type": "string" },
+    { "key": "token", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/health", "host": ["{{base_url}}"], "path": ["health"] }
+      }
+    },
+    {
+      "name": "Register",
+      "event": [{
+        "listen": "test",
+        "script": {
+          "exec": [
+            "var json = pm.response.json();",
+            "if (json.token) { pm.collectionVariables.set('token', json.token); }"
+          ],
+          "type": "text/javascript"
+        }
+      }],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Jane Doe\",\n  \"email\": \"jane@university.edu\",\n  \"password\": \"password123\",\n  \"skills\": [\"Python\", \"SQL\", \"Power BI\"]\n}"
+        },
+        "url": { "raw": "{{base_url}}/register", "host": ["{{base_url}}"], "path": ["register"] }
+      }
+    },
+    {
+      "name": "Login",
+      "event": [{
+        "listen": "test",
+        "script": {
+          "exec": [
+            "var json = pm.response.json();",
+            "if (json.token) { pm.collectionVariables.set('token', json.token); }"
+          ],
+          "type": "text/javascript"
+        }
+      }],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"jane@university.edu\",\n  \"password\": \"password123\"\n}"
+        },
+        "url": { "raw": "{{base_url}}/login", "host": ["{{base_url}}"], "path": ["login"] }
+      }
+    },
+    {
+      "name": "Get Profile",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{base_url}}/profile", "host": ["{{base_url}}"], "path": ["profile"] }
+      }
+    },
+    {
+      "name": "Update Profile",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Jane Doe Updated\",\n  \"skills\": [\"Python\", \"SQL\", \"Power BI\", \"Tableau\"]\n}"
+        },
+        "url": { "raw": "{{base_url}}/profile", "host": ["{{base_url}}"], "path": ["profile"] }
+      }
+    },
+    {
+      "name": "Get Internships",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{base_url}}/internships", "host": ["{{base_url}}"], "path": ["internships"] }
+      }
+    },
+    {
+      "name": "Get Recommendations",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{base_url}}/recommendations", "host": ["{{base_url}}"], "path": ["recommendations"] }
+      }
+    },
+    {
+      "name": "Get Matches",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{base_url}}/matches", "host": ["{{base_url}}"], "path": ["matches"] }
+      }
+    }
+  ]
+}
