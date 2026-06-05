@@ -13,7 +13,8 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:3000", "http://localhost:3001"], supports_credentials=True)
+CORS(app, resources={r"/*": {"origins": os.getenv('CORS_ORIGINS', '*')}})
+# If you want to restrict CORS in production, set CORS_ORIGINS to your frontend URL
 bcrypt = Bcrypt(app)
 
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-super-secret-key-change-in-production')
