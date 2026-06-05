@@ -13,8 +13,8 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": os.getenv('CORS_ORIGINS', '*')}})
-# If you want to restrict CORS in production, set CORS_ORIGINS to your frontend URL
+# Allow the deployed frontend by default; can be overridden with CORS_ORIGINS env var
+CORS(app, resources={r"/*": {"origins": os.getenv('CORS_ORIGINS', 'https://ai-internship-frontend2.onrender.com')}})
 bcrypt = Bcrypt(app)
 
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-super-secret-key-change-in-production')

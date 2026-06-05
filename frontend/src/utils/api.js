@@ -1,9 +1,10 @@
 import axios from 'axios';
 
 const API = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000',
-  headers: { 'Content-Type': 'application/json' },
-});
+  baseURL: process.env.REACT_APP_API_URL || 'https://ai-internship-frontend2.onrender.com/register',
+    baseURL: process.env.REACT_APP_API_URL || 'https://ai-internship-backend2.onrender.com',
+    headers: { 'Content-Type': 'application/json' },
+  });
 
 // Attach token from localStorage automatically
 API.interceptors.request.use((config) => {
